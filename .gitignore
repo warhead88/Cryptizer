@@ -1,0 +1,12 @@
+# Ключи и секреты
+secret.key
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
