@@ -1,5 +1,6 @@
 import os
-from cryptography.fernet import Fernet
+import base64
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 KEY_FILE = "secret.key"
 
@@ -23,33 +24,54 @@ def delete_key():
     return False
 
 def generate_key():
-    return Fernet.generate_key()
+    # Генерируем 64 байта (512 бит) случайных данных
+    # Для AES-256 нам нужно 32 байта, но мы будем хранить 64-битный "мастер-ключ"
+    # и брать из него энтропию для максимальной надежности.
+    raw_key = os.urandom(64)
+    return base64.urlsafe_b64encode(raw_key)
 
 def get_cipher():
-    key = load_key()
-    if not key:
+    key_b64 = load_key()
+    if not key_b64:
         return None
     try:
-        return Fernet(key)
+        # Декодируем 512-битный ключ
+        raw_key = base64.urlsafe_b64decode(key_b64)
+        # Берем первые 32 байта (256 бит) для AES-256-GCM
+        aes_key = raw_key[:32]
+        return AESGCM(aes_key)
     except Exception:
         return None
 
 def encrypt_message(cipher, text):
     if not cipher or not text:
         return None
-    return cipher.encrypt(text.encode()).decode()
+    try:
+        # Генерируем случайный 96-битный nonce (рекомендовано для GCM)
+        nonce = os.urandom(12)
+        encrypted_data = cipher.encrypt(nonce, text.encode(), None)
+        # Возвращаем nonce + зашифрованные данные в base64
+        return base64.urlsafe_b64encode(nonce + encrypted_data).decode()
+    except Exception:
+        return None
 
-def decrypt_message(cipher, encrypted_text):
-    if not cipher or not encrypted_text:
+def decrypt_message(cipher, encrypted_text_b64):
+    if not cipher or not encrypted_text_b64:
         return None
     try:
-        return cipher.decrypt(encrypted_text.encode()).decode()
+        data = base64.urlsafe_b64decode(encrypted_text_b64.encode())
+        # Первые 12 байт - это nonce
+        nonce = data[:12]
+        ciphertext = data[12:]
+        decrypted_data = cipher.decrypt(nonce, ciphertext, None)
+        return decrypted_data.decode()
     except Exception:
         return None
 
 def validate_key_format(key_string):
     try:
-        Fernet(key_string.encode())
-        return True
+        decoded = base64.urlsafe_b64decode(key_string.encode())
+        # Проверяем, что в ключе достаточно байт (минимум 32 для AES-256)
+        return len(decoded) >= 32
     except Exception:
         return False
